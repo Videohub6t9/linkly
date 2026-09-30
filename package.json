@@ -1,0 +1,10 @@
+{
+  "name": "linkly",
+  "private": true,
+  "dependencies": { "hono": "^4", "jose": "^5" },
+  "devDependencies": {
+    "wrangler": "^4",
+    "typescript": "^5",
+    "@cloudflare/workers-types": "^4"
+  }
+}
