@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linkly</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-900">
+<div class="max-w-xl mx-auto p-4 space-y-4">
+  <h1 class="text-2xl font-bold">🔗 Linkly</h1>
+
+  <div id="login" class="bg-white rounded-xl shadow p-4 space-y-2 hidden">
+    <input id="tok" type="password" placeholder="Admin token" class="w-full border rounded p-2">
+    <button onclick="saveTok()" class="w-full bg-black text-white rounded p-2">Login</button>
+  </div>
+
+  <div id="app" class="hidden space-y-4">
+    <div class="bg-white rounded-xl shadow p-4 space-y-2">
+      <h2 class="font-semibold">New link</h2>
+      <input id="url" placeholder="https://long-url.com/..." class="w-full border rounded p-2">
+      <input id="slug" placeholder="Custom slug (optional)" class="w-full border rounded p-2">
+      <input id="domain" class="w-full border rounded p-2">
+      <label class="text-sm text-slate-500">Expires (optional)</label>
+      <input id="exp" type="datetime-local" class="w-full border rounded p-2">
+      <details class="space-y-2">
+        <summary class="cursor-pointer text-sm text-slate-600">OG metadata</summary>
+        <input id="title" placeholder="Title" class="w-full border rounded p-2 mt-2">
+        <input id="desc" placeholder="Description" class="w-full border rounded p-2">
+        <input id="img" placeholder="Image URL" class="w-full border rounded p-2">
+      </details>
+      <button onclick="create()" class="w-full bg-blue-600 text-white rounded p-2">Create</button>
+      <p id="msg" class="text-sm"></p>
+    </div>
+
+    <div class="flex justify-between items-center">
+      <h2 class="font-semibold">Your links</h2>
+      <button onclick="logout()" class="text-sm text-slate-500">Logout</button>
+    </div>
+    <div id="list" class="space-y-2"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const tok = () => localStorage.getItem('tok');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok() },
+  });
+  if (r.status === 401) { logout(); throw new Error('Unauthorized'); }
+  return r;
+}
+
+function saveTok() { localStorage.setItem('tok', $('tok').value.trim()); init(); }
+function logout() { localStorage.removeItem('tok'); init(); }
+
+async function create() {
+  const body = { url: $('url').value.trim(), domain: $('domain').value.trim() };
+  if ($('slug').value.trim()) body.slug = $('slug').value.trim();
+  if ($('exp').value) body.expiresAt = new Date($('exp').value).toISOString();
+  if ($('title').value) body.title = $('title').value;
+  if ($('desc').value) body.description = $('desc').value;
+  if ($('img').value) body.image = $('img').value;
+  const r = await api('/api/links', { method: 'POST', body: JSON.stringify(body) });
+  const d = await r.json();
+  $('msg').textContent = r.ok ? '✅ ' + d.shortUrl : '❌ ' + d.error;
+  if (r.ok) { $('url').value = ''; $('slug').value = ''; load(); }
+}
+
+async function load() {
+  const r = await api('/api/links');
+  const links = await r.json();
+  $('list').innerHTML = links.map((l) => `
+    <div class="bg-white rounded-xl shadow p-3">
+      <div class="font-medium break-all">${esc(l.domain)}/${esc(l.slug)}</div>
+      <div class="text-xs text-slate-500 break-all">${esc(l.url)}</div>
+      <div class="text-sm mt-1">👆 ${l.clicks} clicks${l.expires_at ? ' · exp ' + new Date(l.expires_at).toLocaleDateString() : ''}</div>
+      <div class="flex gap-3 mt-2 text-sm">
+        <button onclick="copy('https://${esc(l.domain)}/${esc(l.slug)}')" class="text-blue-600">Copy</button>
+        <button onclick="stats('${l.id}')" class="text-green-700">Stats</button>
+        <button onclick="del('${l.id}')" class="text-red-600">Delete</button>
+      </div>
+      <pre id="s-${l.id}" class="text-xs mt-2 whitespace-pre-wrap"></pre>
+    </div>`).join('') || '<p class="text-slate-500">No links yet.</p>';
+}
+
+function copy(t) { navigator.clipboard.writeText(t); $('msg').textContent = 'Copied!'; }
+
+async function del(id) {
+  if (!confirm('Delete this link?')) return;
+  await api('/api/links/' + id, { method: 'DELETE' });
+  load();
+}
+
+async function stats(id) {
+  const d = await (await api(`/api/links/${id}/stats`)).json();
+  const fmt = (a) => a.map((x) => `${x.key}: ${x.clicks}`).join('\n') || '-';
+  $('s-' + id).textContent = 'Days\n' + fmt(d.byDay) + '\n\nCountries\n' + fmt(d.byCountry) + '\n\nReferrers\n' + fmt(d.byReferrer);
+}
+
+function init() {
+  const has = !!tok();
+  $('login').classList.toggle('hidden', has);
+  $('app').classList.toggle('hidden', !has);
+  $('domain').value = location.host;
+  if (has) load().catch(() => {});
+}
+init();
+</script>
+</body>
+</html>
